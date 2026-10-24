@@ -1,0 +1,24 @@
+import { S, render, newChat, PC } from './chat.js';
+import { getAtt, putAtt } from './store.js';
+import {cfValidateGenerated094,cfPreset094} from './clinicalLogic094.js';
+export function invalidatePages094(){PC.clear();}
+export async function cfCapture094(payload){const b=await getAtt('clinical:research')||{id:'clinical:research',clips:[]};b.clips.unshift({id:crypto.randomUUID(),createdAt:Date.now(),title:payload.source||payload.url||'Research capture',url:payload.url||'',text:payload.text||'',image:payload.image||null});await putAtt(b);window.dispatchEvent(new Event('cf-research-updated'));}
+export async function saveQuestionPearl094(q,note,exam){const B=window.__amcBridge;await B.saveHighlight({id:B.uid(),createdAt:Date.now(),text:q.question+'\n'+q.options.map((o,i)=>String.fromCharCode(65+i)+'. '+o).join('\n')+'\nAnswer: '+String.fromCharCode(65+q.answerIndex)+'\n'+(q.explanation||''),source:{label:q.docName||q.source||'Practice module',docId:q.docId,page:q.page},thread:[],subject:q.subject||'',memoryNote:note||'',exam});alert('Saved to Highlights.');}
+export function cfSeedChat094(text){newChat();S.draft=String(text||'');window.__cfChatSeed=S.draft;if(S.el){const ta=S.el.querySelector('textarea');if(ta)ta.value=S.draft;render();}}
+export function cfInit094(){
+ const go=view=>window.dispatchEvent(new CustomEvent('amc-go',{detail:{view}}));
+ window.addEventListener('amc-ask-seed',ev=>{window.__cfAskSeed=ev.detail;localStorage.setItem('amc.ask.draft',ev.detail.query||'');go('ask')});
+ window.addEventListener('amc-chat-seed',ev=>{cfSeedChat094(ev.detail?.text);go('chat')});
+ window.addEventListener('amc-drill',ev=>{window.__cfDrillSeed=ev.detail;go('practice');setTimeout(()=>{if(window.__cfDrillSeed){window.__cfDrillSeed=null;window.dispatchEvent(new CustomEvent('cf-load-drill',{detail:ev.detail}))}},150)});
+ window.addEventListener('amc-generate',async ev=>{const d=ev.detail||{},B=window.__amcBridge;go('practice');const status=document.createElement('div');status.className='cf-generation-status';status.role='status';status.textContent='Generating passage-grounded questions…';document.body.append(status);
+ try{if(!B.sd())throw Error('Configure an AI provider in Settings first.');const exam=d.exam||(B.exam()?'amc':'neet'),n=Math.min(100,Math.max(1,+d.n||5));let qs=[];
+ for(let tries=0;qs.length<n&&tries<Math.ceil(n/5)+3;tries++){const need=Math.min(5,n-qs.length);status.textContent=`Generating ${qs.length}/${n} questions…`;
+ const raw=await B.fd([{role:'user',content:`Create exactly ${need} exam-relevant ${exam.toUpperCase()} MCQs on ${d.query||d.subject||'the supplied passage'}. Each has ${exam==='amc'?5:4} options, one best answer and a concise explanation. Use the supplied text as evidence; do not invent source citations. Do not repeat these stems: ${qs.map(q=>q.question).join(' | ')}. Return ONLY JSON {"mcqs":[{"question":"...","options":["..."],"answerIndex":0,"explanation":"...","subject":"...","topic":"..."}]}.\nSOURCE TEXT:\n${String(d.passage||'No supplied passage: use conservative standard exam knowledge, label unverified.').slice(0,26000)}`}],{json:true});
+ const x=B.yd(raw);for(const q of cfValidateGenerated094(x.mcqs||x.questions||x,exam))if(!qs.some(a=>a.question.trim().toLowerCase()===q.question.trim().toLowerCase()))qs.push(B.shuffleQuestion(q));}
+ if(qs.length!==n)throw Error(`Generated ${qs.length}/${n} usable questions. Nothing was launched; retry with a smaller set.`);
+ window.dispatchEvent(new CustomEvent('amc-drill',{detail:{exam,subject:d.subject||d.query,qs}}));
+ }catch(e){alert(e.message)}finally{status.remove()}});
+ const attach=()=>{const main=document.querySelector('.main');if(!main||main.querySelector('.cf-topbar'))return;const bar=document.createElement('header');bar.className='cf-topbar';const label=document.createElement('strong');label.textContent='Clinical Focus';const form=document.createElement('form');const input=document.createElement('input');input.placeholder='Search your medical library…';input.setAttribute('aria-label','Global medical search');const submit=document.createElement('button');submit.className='btn small';submit.textContent='Search';form.append(input,submit);form.onsubmit=ev=>{ev.preventDefault();window.__cfSearchSeed=input.value;go('search')};const b=document.createElement('button');b.className='btn small';b.textContent='Due flashcards';b.onclick=()=>go('srs');bar.append(label,form,b);main.prepend(bar)};
+ const start=()=>{attach();new MutationObserver(attach).observe(document.body,{childList:true,subtree:true})};document.body?start():document.addEventListener('DOMContentLoaded',start,{once:true});
+ document.addEventListener('keydown',ev=>{if((ev.ctrlKey||ev.metaKey)&&ev.key.toLowerCase()==='k'){ev.preventDefault();document.querySelector('.cf-topbar input')?.focus()}});
+}

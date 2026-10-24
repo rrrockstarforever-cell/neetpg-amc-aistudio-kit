@@ -1,0 +1,7 @@
+Build a responsive single-page web app, "NEET PG / AMC Prep", a study tool for medical PG exams, using React + Tailwind and local browser storage (IndexedDB/localStorage). No backend.
+
+Follow the visual system in `design/clinical_focus/DESIGN.md` (Clinical Focus: light lavender/navy selected sidebar, compact top search bar, system font fallback, full dark theme with readable text everywhere). Match each screen in `design/<screen>/screen.png` and `code.html`.
+
+Screens (sidebar): Library & OCR, Chat (AI knowledge engine), Ask your books, Search (editable synonym chips, history, paged results, open source page), Topics (per-subject index, compare excerpts), Practice builder, Test runner (timer, palette, flag, pause), Mistake notebook (notes, trap tags, flags, mastered, add to SRS, Anki TSV/JSON export), Flashcards & SRS (reveal, Again/Hard/Good/Easy with real next-due times, FSRS-style), Progress (real metrics only), Highlights (capture, star, private note, subject filter, convert to card), Research browser + scratchpad, Settings (AI provider; keys stored locally, never exported), Data & exports (versioned JSON backup, merge import that never overwrites schedules, Anki TSV, PDF; no "clear all data").
+
+Rules: no fake metrics or placeholders presented as data; all user-supplied text rendered as text, never HTML; keyboard focus styles; works at 980x700 and 1500x900. See `requirements.md` for exact behaviour and `gap-audit.md` for the features that must be fully functional. Use `reference-extension/src` as the behavioural reference for logic.

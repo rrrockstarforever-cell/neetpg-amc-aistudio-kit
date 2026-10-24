@@ -1,0 +1,69 @@
+import { putAtt, getAtt, LS } from './store.js';
+import { tagQuestion, buildTree, TX_VERSION } from './taxonomy.js';
+// Independent question banks, persisted in IndexedDB; seen history is separate per bank.
+
+
+export function bankStorageKey(bank='amc'){if(!['amc','emedici','success'].includes(bank))throw Error('Unknown question bank');return 'bank:'+bank;}
+export const seenKey=bank=>bank==='amc'?'amc.bank.seen':'amc.bank.'+bank+'.seen';
+export const bankEligible = q => !q.needsReview;
+export async function loadBank(bank) {
+ const b = await getAtt(bankStorageKey(bank)); if (!b) return null;
+ if (b.taxVersion !== TX_VERSION) { b.questions = b.questions.map(tagQuestion); b.taxVersion = TX_VERSION; await putAtt(b); } // ids and seen-history untouched
+ return b;
+}
+export async function importBank(file,bank='amc'){
+ const key=bankStorageKey(bank),j=JSON.parse(await file.text());
+ const input=Array.isArray(j)?j:j.questions;
+ if(!Array.isArray(input))throw Error('Expected a question-bank JSON file.');
+ const seen=new Set(),questions=[];
+ for(const q of input){
+  if(!q||typeof q.question!=='string'||!Array.isArray(q.options)||q.options.length<4||!Number.isInteger(q.answerIndex)||q.answerIndex<0||q.answerIndex>=q.options.length||q.options.some(o=>typeof o!=='string'||!o.trim()))continue;
+  const textKey=q.question.toLowerCase().replace(/[^a-z0-9]/g,'');if(seen.has(textKey))continue;seen.add(textKey);
+  let image=q.image;if(image&&!/^data:image\/(?:jpeg|png|webp);base64,|^\.\/assets\/emedici\//i.test(image))image=undefined;
+  questions.push({...q,image,id:q.id||bank+'-'+questions.length,tier:q.tier||q.difficulty||'unknown'});
+ }
+ if(!questions.length)throw Error('No usable questions; answer keys and at least four options are required.');
+ await putAtt({id:key,name:j.name||bank+' question bank',questions:questions.map(tagQuestion),taxVersion:TX_VERSION,metadata:j.metadata||{},at:Date.now()});LS.set(seenKey(bank),[]);return questions.length;
+}
+export async function bankInfo(bank='amc'){
+ const b=await loadBank(bank);if(!b)return null;
+ const seen=new Set(LS.get(seenKey(bank),[]));return {name:b.name,count:b.questions.length,ready:b.questions.filter(bankEligible).length,needsReview:b.questions.filter(q=>!bankEligible(q)).length,seen:b.questions.filter(q=>seen.has(q.id)).length,images:b.questions.filter(q=>q.image&&q.imageStatus!=='candidate-source-crop').length,metadata:b.metadata};
+}
+export async function pickFromBank({bank='amc',...opts}={}){
+ const b=await loadBank(bank);if(!b)throw Error('Import the '+(bank==='emedici'?'eMedici':bank==='success'?'AMC SUCCESS':'AMC recall')+' bank first.');
+ const result=selectBankQuestions(b.questions,LS.get(seenKey(bank),[]),opts);LS.set(seenKey(bank),result.seen);return result;
+}
+export async function seedBundledBank(bank='emedici'){
+ const key=bankStorageKey(bank),url=bank==='emedici'?'./assets/emedici-bank.json':bank==='success'?'./assets/amc-success-bank.json':null;if(!url)return null;
+ const cur=await getAtt(key);let j;try{j=await (await fetch(url)).json();}catch{return cur?{seeded:false}:null;}
+ if(cur&&cur.seedVersion===j.seedVersion)return {seeded:false};
+ // Re-seed only on a new version; keep seen-history for questions that still exist.
+ await putAtt({id:key,name:j.name,seedVersion:j.seedVersion,questions:j.questions.map(tagQuestion),taxVersion:TX_VERSION,metadata:j.metadata,at:Date.now()});
+ if(!cur)LS.set(seenKey(bank),[]);return {seeded:true,count:j.questions.length};
+}
+export async function browseBank(bank='emedici',{q='',onlyReview=false,imageOnly=false,page=0,size=15}={}){
+ const b=await loadBank(bank);if(!b)return {items:[],total:0};const t=q.trim().toLowerCase();
+ const all=b.questions.filter(x=>(!onlyReview||x.needsReview)&&(!imageOnly||x.image)&&(!t||x.question.toLowerCase().includes(t)||(x.topic||'').toLowerCase().includes(t)));
+ return {items:all.slice(page*size,page*size+size),total:all.length};
+}
+export async function resetSeen(bank='amc'){bankStorageKey(bank);LS.set(seenKey(bank),[]);}
+export async function imageExamples({groups,n=4}={}){
+ const all=[];for(const id of ['emedici','success','amc']){const b=await getAtt(bankStorageKey(id));if(b)all.push(...b.questions.filter(q=>q.image&&q.imageStatus!=='candidate-source-crop'&&(!groups?.length||groups.includes(q.group))));}
+ for(let i=all.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[all[i],all[j]]=[all[j],all[i]];}return all.slice(0,n);
+}
+export function selectBankQuestions(questions, seenIds, {groups,paths,n=10,tier}={}) {
+  const inPaths=q=>{if(!paths?.length)return true;const k=[q.group,q.unit,q.chapter].join('|');return paths.some(p=>k===p||k.startsWith(p+'|'));};
+  const pool=questions.filter(q=>bankEligible(q)&&(!groups?.length||groups.includes(q.group))&&inPaths(q)&&(!tier||q.tier===tier||q.difficulty===tier));
+  if(!pool.length) throw Error('No bank questions match these filters.');
+  let seen=new Set(seenIds), fresh=pool.filter(q=>!seen.has(q.id)), reset=false;
+  if(!fresh.length){const ids=new Set(pool.map(q=>q.id));seen=new Set([...seen].filter(x=>!ids.has(x)));fresh=pool.slice();reset=true;}
+  for(let i=fresh.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[fresh[i],fresh[j]]=[fresh[j],fresh[i]];}
+  const qs=fresh.slice(0,Math.max(1,Math.floor(n)));qs.forEach(q=>seen.add(q.id));
+  return {qs,seen:[...seen],total:pool.length,left:pool.length-pool.filter(q=>seen.has(q.id)).length,reset,short:qs.length<n};
+}
+
+export async function bankTree(bank='emedici'){
+ const b=await loadBank(bank);if(!b)return null;const seen=new Set(LS.get(seenKey(bank),[]));const ready=b.questions.filter(bankEligible);
+ return {tree:buildTree(ready,seen),total:b.questions.length,ready:ready.length,needsReview:b.questions.length-ready.length};
+}
+
