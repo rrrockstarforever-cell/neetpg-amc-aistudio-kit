@@ -2,3 +2,4 @@ node_modules/
 *.exe
 *.dll
 .env
+.hermes-tmp*
